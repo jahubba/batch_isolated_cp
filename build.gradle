@@ -1,0 +1,160 @@
+ext {
+	nonJavaProjects = [
+	]
+	moduleProjects  = subprojects.findAll { project -> project.path.startsWith(':modules.')}
+	javaProjects    = subprojects - (moduleProjects + nonJavaProjects)
+	coverageProjects = [
+		'batch-isol',
+	].collect { p -> project(p) }
+}
+
+def forceDependencyVersions(p) {
+	p.configurations.all {
+		resolutionStrategy {
+			eachDependency { DependencyResolveDetails details ->
+				//Force same version of Spring across the board
+				if (details.requested.group == 'org.springframework') {
+					details.useVersion "$springVersion"
+				}
+				if (details.requested.group == 'org.springframework.amqp') {
+					details.useVersion "$springAmqpVersion"
+				}
+				if (details.requested.group == 'org.slf4j') {
+					details.useVersion "$slf4jVersion"
+				}
+				if (details.requested.group == 'org.kitesdk') {
+					details.useVersion "0.16.0"
+				}
+			}
+		}
+	}
+}
+
+allprojects {
+	group = 'jahubba'
+	version = '0.0.1-SNAPSHOT'
+	
+	repositories {
+		mavenCentral()
+		maven {
+			url 'http://repo.springsource.org/milestone'
+		}
+	}
+}
+
+configure(javaProjects) { subproject ->
+	apply plugin: 'java'
+	apply plugin: 'eclipse'
+	apply plugin: 'idea'
+	apply plugin: 'findbugs'
+
+	compileJava {
+		sourceCompatibility=1.7
+		targetCompatibility=1.7
+		options.fork = true
+		options.forkOptions.with {
+			memoryMaximumSize = "512m"
+		}
+	}
+	
+	findbugs {
+		ignoreFailures = true
+	}
+	
+	test {
+		jvmArgs '-Xmx1024m', '-XX:MaxPermSize=256m', '-XX:+HeapDumpOnOutOfMemoryError'
+	}
+
+	compileTestJava {
+		sourceCompatibility=1.7
+		targetCompatibility=1.7
+		options.fork = true
+		options.forkOptions.with {
+			memoryMaximumSize = "512m"
+		}
+	}
+	
+	forceDependencyVersions(subproject)
+	
+	dependencies {
+		compile "log4j:log4j:1.2.17"
+		compile "joda-time:joda-time:2.3"
+		
+		testCompile "org.mockito:mockito-all:1.9.5"
+		testCompile "junit:junit:4.11"
+	}
+
+}
+
+configure(moduleProjects) { moduleProject ->
+	// We only apply the java plugin b/c the eclipse/idea plugins
+	// require it to emit e.g. a .classpath file. Those projects don't actually
+	// contain java code, so reset everything (prevents creation of
+	// the 'build' directory, etc)
+	apply plugin: 'java'
+	task build(overwrite: true) {}
+	task clean(overwrite: true) {}
+	compileJava {
+		sourceCompatibility=1.6
+		targetCompatibility=1.6
+	}
+
+	apply plugin: 'eclipse'
+	apply plugin: 'idea'
+
+	forceDependencyVersions(moduleProject)
+	
+	task copyLibs(type: Copy) {
+		def containerDeps = project(':modules').configurations.runtime
+
+		inputs.property('deps', moduleProject.configurations.runtime.minus(containerDeps))
+		outputs.dir project.file('lib/')
+
+		from moduleProject.configurations.runtime.minus(containerDeps)
+		into project.file('lib/')
+		exclude 'jackson-*'
+	}
+
+	[
+		'test',
+		'build',
+		'eclipse',
+		'idea'
+	].each {t -> tasks[t].dependsOn copyLibs}
+
+	task cleanLibs(type: Delete)  { delete copyLibs.outputs }
+
+	[
+		'clean',
+		'cleanEclipse',
+		'cleanIdea'
+	].each {t -> tasks[t].dependsOn cleanLibs}
+}
+
+project('batch-isol') {
+	description = 'Batch Job'
+	dependencies {
+		compile "org.springframework.batch:spring-batch-core:$springBatchVersion"
+		compile "org.springframework.xd:spring-xd-module-spi:$springXDVersion"
+	}
+}
+
+project('modules') {
+	description = 'Spring XD Modules'
+	dependencies { 
+		runtime "org.springframework.xd:spring-xd-dirt:$springXDVersion"
+	}
+	task build(overwrite: true) {}
+}
+
+project('modules.job.batch-isol') {
+	dependencies { 
+		runtime	(project(":batch-isol")) {
+			exclude group: "org.codehaus.groovy"
+		}
+	}
+}
+
+task createWrapper(type: Wrapper) {
+	gradleVersion = '2.1'
+}

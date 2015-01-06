@@ -1,0 +1,12 @@
+/.gradle/
+build/
+/.metadata
+/RemoteSystemsTempFiles
+/Servers
+/bin
+*.settings
+*.class
+*.log
+*.classpath
+*.project
+/modules/*/*/lib/*.jar

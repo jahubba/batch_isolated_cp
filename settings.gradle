@@ -1,0 +1,20 @@
+include 'modules'
+
+['source', 'processor', 'sink', 'job'].each {kind->
+	new File(rootDir, "modules/${kind}").eachDir { dir ->
+		if (new File(dir, "config/${dir.name}.xml").exists()) {
+		    include ":modules.${kind}.${dir.name}"
+		    project(":modules.${kind}.${dir.name}").projectDir = dir
+		}
+	}
+}
+
+// For projects living in extensions/ directory:
+// This prevents the detection of the extensions/ directory itself
+// as a project (which it is not) and avoids manual listing of projects
+new File(rootDir, 'extensions').eachDir { dir ->
+	if (new File(dir, 'src/main/java').exists()) {
+		include ":${dir.name}"
+		project(":${dir.name}").projectDir = dir
+	}
+}
